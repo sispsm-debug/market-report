@@ -238,8 +238,8 @@ D-day: {dday}
     return res.content[0].text
 
 def send_telegram(text):
-    token = os.environ["TELEGRAM_BOT_TOKEN"]
-    chat_id = os.environ["TELEGRAM_CHAT_ID"]
+    token = os.environ["KPTU_BOT_TOKEN"]
+    chat_id = os.environ["KPTU_CHAT_ID"]
     url = f"https://api.telegram.org/bot{token}/sendMessage"
     MAX = 3500
     # 구분선 기준 분할
