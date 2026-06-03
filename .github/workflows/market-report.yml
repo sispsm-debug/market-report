@@ -10,18 +10,13 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - name: 저장소 체크아웃
-        uses: actions/checkout@v4
-      - name: Python 설정
-        uses: actions/setup-python@v5
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - name: 패키지 설치
-        run: pip install anthropic requests beautifulsoup4 lxml
-      - name: 증시 보고서 생성 및 카카오톡 전송
-        run: python market_report.py
+      - run: pip install anthropic requests beautifulsoup4 lxml
+      - run: python market_report.py
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-          KAKAO_ACCESS_TOKEN: ${{ secrets.KAKAO_ACCESS_TOKEN }}
-          KAKAO_REST_APP_KEY: ${{ secrets.KAKAO_REST_APP_KEY }}
-
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
