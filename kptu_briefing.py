@@ -1,106 +1,177 @@
 #!/usr/bin/env python3
 """
 KPTU 공공운수노조 경북지역지부 노동·인권 일간 브리핑
-매일 오전 9시 자동 실행 (GitHub Actions)
+Google News RSS + 노동전문매체 RSS로 안정적 수집
 """
-import os, requests, math
+import os, re, requests, xml.etree.ElementTree as ET
 from datetime import datetime, timezone, timedelta
-from bs4 import BeautifulSoup
+from email.utils import parsedate_to_datetime
 import anthropic
 
 KST = timezone(timedelta(hours=9))
 now = datetime.now(KST)
 TODAY = now.strftime("%Y-%m-%d")
+YESTERDAY = (now - timedelta(days=1)).strftime("%Y-%m-%d")
 WEEKDAYS = ["월요일","화요일","수요일","목요일","금요일","토요일","일요일"]
-WEEKDAY = WEEKDAYS[now.weekday()]
-DATE_KR = f"{now.year}년 {now.month}월 {now.day}일 {WEEKDAY}"
-UA = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/124.0.0.0"}
+DATE_KR = f"{now.year}년 {now.month}월 {now.day}일 {WEEKDAYS[now.weekday()]}"
+UA = {"User-Agent": "Mozilla/5.0 (compatible; RSS/2.0)"}
 
-LABOR_KEYWORDS = [
-    "민주노총", "고용노동부 발표", "중대재해처벌법",
-    "민주노총 공공운수노조", "노란봉투법", "노동위원회 결정",
-    "최저임금 심의", "산재", "부당해고", "직장내 괴롭힘",
-    "비정규직", "파업 단체교섭", "공무직", "공공운수노조",
-    "용역근로자", "노동"
+# ── 우선 출처 RSS ─────────────────────────────────────────
+PRIORITY_RSS = [
+    ("매일노동뉴스",    "https://www.labortoday.co.kr/rss/allArticle.xml"),
+    ("참여와혁신",      "https://www.laborplus.co.kr/rss/allArticle.xml"),
+    ("미디어오늘",      "https://www.mediatoday.co.kr/rss/allArticle.xml"),
+    ("참세상",          "https://www.newscham.net/rss/rss.php"),
+    ("한겨레",          "https://www.hani.co.kr/rss/society/"),
+    ("경향신문",        "https://www.khan.co.kr/rss/rssdata/kh_labor.xml"),
+    ("연합뉴스",        "https://www.yna.co.kr/rss/society.xml"),
+    ("오마이뉴스",      "https://www.ohmynews.com/ohmynews/rss/0000000.xml"),
+    ("MBC뉴스",         "https://imnews.imbc.com/rss/news/news_00.xml"),
 ]
 
-def fetch_labor_news(query, n=8):
+# ── Google 뉴스 RSS (키워드별) ────────────────────────────
+KEYWORDS = [
+    "민주노총", "공공운수노조", "중대재해처벌법",
+    "고용노동부", "노란봉투법", "최저임금",
+    "산재 사망", "부당해고", "직장내 괴롭힘",
+    "비정규직", "파업", "공무직",
+]
+
+def parse_date(date_str):
+    """날짜 문자열을 datetime으로 변환"""
     try:
-        url = f"https://search.naver.com/search.naver?where=news&query={requests.utils.quote(query)}&sort=1&ds=&de="
+        return parsedate_to_datetime(date_str).astimezone(KST)
+    except:
+        try:
+            for fmt in ["%Y-%m-%dT%H:%M:%S%z", "%a, %d %b %Y %H:%M:%S %z"]:
+                return datetime.strptime(date_str[:25], fmt[:len(date_str[:25])]).astimezone(KST)
+        except:
+            return now  # 파싱 실패 시 오늘로 처리
+
+def is_recent(date_str):
+    """최근 2일 이내 기사인지 확인"""
+    try:
+        dt = parse_date(date_str)
+        diff = (now - dt).days
+        return diff <= 2
+    except:
+        return True  # 날짜 불명 시 포함
+
+def fetch_rss(url, press_name, n=15):
+    """RSS 피드에서 최근 기사 수집"""
+    try:
         res = requests.get(url, headers=UA, timeout=10)
-        soup = BeautifulSoup(res.text, "lxml")
+        root = ET.fromstring(res.content)
         items = []
-        for a in soup.select("a.news_tit")[:n]:
-            title = a.text.strip()
-            # 날짜 추출
-            parent = a.find_parent("div", class_="news_wrap") or a.find_parent("li")
-            date_el = parent.select_one("span.info") if parent else None
-            date_str = date_el.text.strip() if date_el else ""
-            # 언론사
-            press_el = parent.select_one("a.info.press") if parent else None
-            press = press_el.text.strip() if press_el else ""
-            # 요약
-            desc_el = parent.select_one("div.dsc_wrap, div.news_dsc") if parent else None
-            desc = desc_el.text.strip()[:120] if desc_el else ""
-            items.append({"title": title, "press": press, "date": date_str, "desc": desc})
+        ns = {"atom": "http://www.w3.org/2005/Atom"}
+        
+        for item in root.findall(".//item")[:n]:
+            title = item.findtext("title", "").strip()
+            desc = item.findtext("description", "").strip()
+            pub_date = item.findtext("pubDate", "")
+            # HTML 태그 제거
+            title = re.sub(r"<[^>]+>", "", title)
+            desc = re.sub(r"<[^>]+>", "", desc)[:150]
+            
+            if title and is_recent(pub_date):
+                items.append({
+                    "title": title,
+                    "desc": desc,
+                    "press": press_name,
+                    "date": pub_date[:16] if pub_date else TODAY,
+                })
         return items
     except Exception as e:
         return []
 
-def get_dday():
-    """노동·인권 기념일 D-day 계산"""
-    month, day = now.month, now.day
-    messages = []
-    # 노동절 (5/1)
-    if month == 5 and day == 1:
-        messages.append("🎖️ 오늘은 노동절(근로자의 날)입니다!")
-    elif month < 5 or (month == 5 and day < 1):
-        may1 = datetime(now.year, 5, 1, tzinfo=KST)
-        diff = (may1 - now).days
-        if diff <= 30:
-            messages.append(f"🗓️ 노동절까지 D-{diff}")
-    # 세계 산재노동자의 날 (4/28)
-    if month == 4 and day == 28:
-        messages.append("⚠️ 오늘은 세계 산재노동자의 날입니다!")
-    # 광주민주화운동 기념일 (5/18)
-    if month == 5 and day == 18:
-        messages.append("🕊️ 오늘은 5·18 광주민주화운동 기념일입니다.")
-    return " | ".join(messages) if messages else f"📅 {DATE_KR}"
+def fetch_google_news(keyword, n=8):
+    """Google 뉴스 RSS로 키워드 검색"""
+    try:
+        import urllib.parse
+        q = urllib.parse.quote(keyword)
+        url = f"https://news.google.com/rss/search?q={q}&hl=ko&gl=KR&ceid=KR:ko"
+        res = requests.get(url, headers=UA, timeout=10)
+        root = ET.fromstring(res.content)
+        items = []
+        for item in root.findall(".//item")[:n]:
+            title = item.findtext("title", "").strip()
+            title = re.sub(r"\s*-\s*[^-]+$", "", title)  # 매체명 제거
+            source_el = item.find("source")
+            press = source_el.text if source_el is not None else "구글뉴스"
+            pub_date = item.findtext("pubDate", "")
+            desc = item.findtext("description", "")
+            desc = re.sub(r"<[^>]+>", "", desc)[:150]
+            
+            if title and is_recent(pub_date):
+                items.append({
+                    "title": title,
+                    "desc": desc,
+                    "press": press,
+                    "date": pub_date[:16] if pub_date else TODAY,
+                })
+        return items
+    except Exception as e:
+        return []
 
 def collect_all_news():
-    """모든 키워드로 뉴스 수집 후 중복 제거"""
+    """우선 출처 RSS + Google 뉴스 키워드 검색 통합"""
     all_items = []
-    seen_titles = set()
-    print(f"뉴스 수집 중... ({len(LABOR_KEYWORDS)}개 키워드)")
-    for kw in LABOR_KEYWORDS:
-        items = fetch_labor_news(kw, n=5)
+    seen = set()
+    
+    # 1차: 노동전문매체 RSS
+    print("노동전문매체 RSS 수집 중...")
+    for press, url in PRIORITY_RSS:
+        items = fetch_rss(url, press, n=15)
         for item in items:
             t = item["title"]
-            if t not in seen_titles and len(t) > 10:
-                seen_titles.add(t)
+            if t not in seen and len(t) > 8:
+                seen.add(t)
                 all_items.append(item)
-    print(f"수집된 기사: {len(all_items)}건")
+        if items:
+            print(f"  {press}: {len(items)}건")
+    
+    # 2차: Google 뉴스 키워드 검색
+    print("Google 뉴스 키워드 검색 중...")
+    for kw in KEYWORDS:
+        items = fetch_google_news(kw, n=5)
+        for item in items:
+            t = item["title"]
+            if t not in seen and len(t) > 8:
+                seen.add(t)
+                all_items.append(item)
+    
+    print(f"총 수집: {len(all_items)}건")
     return all_items
+
+def get_dday():
+    m, d = now.month, now.day
+    if m == 5 and d == 1: return "🎖️ 오늘은 노동절(근로자의 날)입니다!"
+    if m == 4 and d == 28: return "⚠️ 오늘은 세계 산재노동자의 날입니다!"
+    if m == 5 and d == 18: return "🕊️ 오늘은 5·18 광주민주화운동 기념일입니다."
+    if m < 5 or (m == 5 and d < 1):
+        diff = (datetime(now.year,5,1,tzinfo=KST) - now).days
+        if diff <= 30: return f"🗓️ 노동절까지 D-{diff}"
+    return f"📅 {DATE_KR}"
 
 def generate_briefing(news_items):
     client = anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
     dday = get_dday()
-
+    
     news_text = "\n".join(
-        f"[{i+1}] {item['title']} | {item['press']} {item['date']}\n    {item['desc']}"
-        for i, item in enumerate(news_items[:50])
+        f"[{i+1}] {item['title']} | {item['press']} | {item['date']}\n    {item['desc']}"
+        for i, item in enumerate(news_items[:60])
     )
 
     prompt = f"""너는 공공운수노조 경북지역지부 일간 브리핑 작성 전문가다.
 오늘 날짜: {DATE_KR} ({TODAY})
-D-day 정보: {dday}
+D-day: {dday}
 
-아래 수집된 뉴스 중에서 최근 2일 이내 기사를 선별해 조합원 관점의 브리핑을 작성하라.
-
-[수집된 뉴스]
+[수집된 뉴스 — 최근 2일 이내 기사만 사용]
 {news_text}
 
-다음 형식을 정확히 지켜서 작성하라 (링크는 절대 포함하지 말 것):
+아래 형식을 정확히 지켜서 브리핑을 작성하라.
+링크는 절대 포함 금지. 출처는 매체명+날짜만.
+주제 배치 순서: 1순위 법률·판례 → 2순위 정책·행정 → 3순위 현장이슈 → 4순위 노조활동
 
 ━───── [ K P T U ] ─────━
 📢 공공운수노조 경북지역지부
@@ -129,7 +200,7 @@ D-day 정보: {dday}
 
 ① **[카테고리] [헤드라인]**
 [3~5문장 요약 — 배경/내용/조합원 영향/전망]
-🔗 출처: [매체명] ({TODAY[:7].replace('-','.')})
+🔗 출처: [매체명] ({now.year}.{now.month:02d}.{now.day:02d})
 
 ② ~ ⑩ 동일 형식 반복
 
@@ -153,70 +224,53 @@ D-day 정보: {dday}
 
 ━─────────────────────━
 
-주의사항:
-- 법률·제도·판례 → 정책·행정 → 현장이슈 → 노조활동 순서로 배치
+작성 원칙:
 - 조합원 관점("우리 일터에 어떤 영향인가") 중심
-- 어려운 법률용어는 풀어서 설명
-- 링크 절대 금지, 출처는 매체명+날짜만"""
+- 어려운 법률용어 풀어서 설명
+- 객관적 사실 + 전망/주의사항 포함
+- 정치적 편향 없이 노동자 권리 관점에서"""
 
-    response = client.messages.create(
+    res = client.messages.create(
         model="claude-sonnet-4-6",
         max_tokens=4000,
         messages=[{"role": "user", "content": prompt}]
     )
-    return response.content[0].text
+    return res.content[0].text
 
-def send_telegram_multipart(text):
-    """4096자 초과 시 분할 전송"""
+def send_telegram(text):
     token = os.environ["TELEGRAM_BOT_TOKEN"]
     chat_id = os.environ["TELEGRAM_CHAT_ID"]
     url = f"https://api.telegram.org/bot{token}/sendMessage"
-
-    # 구분선 기준으로 분할
-    MAX_LEN = 3500
-    parts = []
-    current = ""
+    MAX = 3500
+    # 구분선 기준 분할
+    parts, cur = [], ""
     for line in text.split("\n"):
-        if len(current) + len(line) + 1 > MAX_LEN and current:
-            parts.append(current)
-            current = line + "\n"
+        if len(cur) + len(line) + 1 > MAX and cur:
+            parts.append(cur.strip())
+            cur = line + "\n"
         else:
-            current += line + "\n"
-    if current:
-        parts.append(current)
-
-    success = 0
-    for i, part in enumerate(parts):
-        res = requests.post(url, json={
-            "chat_id": chat_id,
-            "text": part,
-            "disable_web_page_preview": True
-        })
-        if res.status_code == 200:
-            success += 1
-        else:
-            print(f"전송 실패 [{i+1}/{len(parts)}]: {res.text[:100]}")
-
-    print(f"텔레그램 전송: {success}/{len(parts)}개 성공")
-    return success == len(parts)
+            cur += line + "\n"
+    if cur.strip():
+        parts.append(cur.strip())
+    
+    ok = 0
+    for part in parts:
+        r = requests.post(url, json={"chat_id": chat_id, "text": part, "disable_web_page_preview": True})
+        if r.status_code == 200: ok += 1
+        else: print(f"전송 실패: {r.text[:100]}")
+    print(f"텔레그램 전송: {ok}/{len(parts)}개 성공")
 
 def main():
     print(f"[{TODAY}] KPTU 브리핑 생성 시작")
-
-    news_items = collect_all_news()
-    if not news_items:
-        print("뉴스 수집 실패")
+    news = collect_all_news()
+    if not news:
+        print("뉴스 수집 실패 - 텔레그램으로 오류 알림")
+        send_telegram(f"⚠️ [{TODAY}] KPTU 브리핑 수집 실패\nRSS 피드 점검 필요")
         return
-
     print("Claude 브리핑 작성 중...")
-    briefing = generate_briefing(news_items)
-    print(f"브리핑 작성 완료 ({len(briefing)}자)")
-    print("---")
-    print(briefing[:500] + "...")
-    print("---")
-
-    print("텔레그램 전송 중...")
-    send_telegram_multipart(briefing)
+    briefing = generate_briefing(news)
+    print(f"작성 완료 ({len(briefing)}자)")
+    send_telegram(briefing)
     print("완료!")
 
 if __name__ == "__main__":
