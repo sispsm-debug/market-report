@@ -13,8 +13,8 @@ from bs4 import BeautifulSoup
 import anthropic
 
 # ── 환경변수 ──────────────────────────────────────────────
-ANTHROPIC_API_KEY = os.environ["ANTHROPIC_API_KEY"]
-KAKAO_ACCESS_TOKEN = os.environ["KAKAO_ACCESS_TOKEN"]
+_ANTHROPIC_KEY = os.environ["ANTHROPIC_API_KEY"]
+_KAKAO_TOKEN = os.environ["KAKAO_ACCESS_TOKEN"]
 
 KST = timezone(timedelta(hours=9))
 TODAY = datetime.now(KST).strftime("%Y-%m-%d")
@@ -275,8 +275,6 @@ def main():
     # 토큰을 갱신한 경우 새 토큰으로 전송
     if new_token:
         os.environ["KAKAO_ACCESS_TOKEN"] = new_token
-        global KAKAO_ACCESS_TOKEN
-        KAKAO_ACCESS_TOKEN = new_token
 
     send_kakao(report)
     print("완료!")
@@ -284,3 +282,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+                                                                                  
