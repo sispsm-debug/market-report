@@ -18,5 +18,5 @@ jobs:
       - run: python kptu_briefing.py
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          KPTU_BOT_TOKEN: ${{ secrets.KPTU_BOT_TOKEN }}
+          KPTU_CHAT_ID: ${{ secrets.KPTU_CHAT_ID }}
