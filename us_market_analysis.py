@@ -251,16 +251,14 @@ def save_to_notion(market_data, analysis):
     date_field = next((k for k,v in db_res.get("properties",{}).items() if v["type"]=="date"), None)
 
     props = {
-        title_field: {"title": [{"text": {"content": f"[{TODAY}] 미국시장 분석 & 국내 영향"}}]},
+        "작성일": {"title": [{"text": {"content": f"[{TODAY}] 미국시장 분석 & 국내 영향"}}]},
         "시장 요약": {"rich_text": [{"text": {"content": analysis["us_summary"][:200]}}]},
         "주도 섹터": {"rich_text": [{"text": {"content": analysis["sector_analysis"][:200]}}]},
         "주도주": {"rich_text": [{"text": {"content": " | ".join(s["stock"] for s in analysis["leading_stocks_impact"])}}]},
         "섹터 선정 근거": {"rich_text": [{"text": {"content": analysis["kr_impact"][:200]}}]},
         "주도주 선정 근거": {"rich_text": [{"text": {"content": analysis["watch_points"][:200]}}]},
-        "작성일": {"rich_text": [{"text": {"content": TODAY}}]},
+        "날짜": {"date": {"start": TODAY}},
     }
-    if date_field:
-        props[date_field] = {"date": {"start": TODAY}}
 
     r = requests.post("https://api.notion.com/v1/pages", headers=notion_headers, json={
         "parent": {"type": "database_id", "database_id": db_id},
