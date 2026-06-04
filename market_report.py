@@ -1,3 +1,4 @@
+# cron-trigger: 2026-06-04
 #!/usr/bin/env python3
 """
 증시 주도섹터 & 주도주 분석 → 노션 저장 → 텔레그램 발송
