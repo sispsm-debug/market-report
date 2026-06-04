@@ -11,7 +11,7 @@ import anthropic
 KST = timezone(timedelta(hours=9))
 now = datetime.now(KST)
 TODAY = now.strftime("%Y-%m-%d")
-YESTERDAY = (now - timedelta(days=1)).strftime("%Y-%m-%d")h
+YESTERDAY = (now - timedelta(days=1)).strftime("%Y-%m-%d")
 WEEKDAYS = ["월요일","화요일","수요일","목요일","금요일","토요일","일요일"]
 DATE_KR = f"{now.year}년 {now.month}월 {now.day}일 {WEEKDAYS[now.weekday()]}"
 UA = {"User-Agent": "Mozilla/5.0 (compatible; RSS/2.0)"}
