@@ -11,7 +11,7 @@ import anthropic
 KST = timezone(timedelta(hours=9))
 now = datetime.now(KST)
 TODAY = now.strftime("%Y-%m-%d")
-YESTERDAY = (now - timedelta(days=1)).strftime("%Y-%m-%d")
+YESTERDAY = (now - timedelta(days=1)).strftime("%Y-%m-%d")h
 WEEKDAYS = ["월요일","화요일","수요일","목요일","금요일","토요일","일요일"]
 DATE_KR = f"{now.year}년 {now.month}월 {now.day}일 {WEEKDAYS[now.weekday()]}"
 UA = {"User-Agent": "Mozilla/5.0 (compatible; RSS/2.0)"}
@@ -144,14 +144,27 @@ def collect_all_news():
     return all_items
 
 def get_dday():
-    m, d = now.month, now.day
+        m, d = now.month, now.day
+        items = []
+        # 고정 기념일
     if m == 5 and d == 1: return "🎖️ 오늘은 노동절(근로자의 날)입니다!"
-    if m == 4 and d == 28: return "⚠️ 오늘은 세계 산재노동자의 날입니다!"
-    if m == 5 and d == 18: return "🕊️ 오늘은 5·18 광주민주화운동 기념일입니다."
-    if m < 5 or (m == 5 and d < 1):
-        diff = (datetime(now.year,5,1,tzinfo=KST) - now).days
-        if diff <= 30: return f"🗓️ 노동절까지 D-{diff}"
-    return f"📅 {DATE_KR}"
+            if m == 4 and d == 28: return "⚠️ 오늘은 세계 산재노동자의 날입니다!"
+                    if m == 5 and d == 18: return "🕊️ 오늘은 5·18 광주민주화운동 기념일입니다."
+                            if m == 6 and d == 6: return "🇰🇷 오늘은 현충일입니다."
+                                    # 주요 D-day 계산
+    targets = [
+                (6, 6,  "현충일"),
+                (6, 29, "최저임금 법정 심의 시한"),
+                (5, 1,  "노동절"),
+    ]
+    for tm, td, label in targets:
+                target = datetime(now.year, tm, td, tzinfo=KST)
+                diff = (target - now).days
+                if 0 < diff <= 30:
+                                items.append(f"{label}까지 D-{diff}")
+                        if items:
+                                    return "📅 " + " | ".join(items)
+                                return f"📅 {DATE_KR}"
 
 def generate_briefing(news_items):
     client = anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
@@ -232,8 +245,8 @@ D-day: {dday}
 
     res = client.messages.create(
         model="claude-sonnet-4-6",
-        max_tokens=4000,
-        messages=[{"role": "user", "content": prompt}]
+            max_tokens=6000,
+                    messages=[{"role": "user", "content": prompt}]
     )
     return res.content[0].text
 
@@ -241,21 +254,23 @@ def send_telegram(text):
     token = os.environ["KPTU_BOT_TOKEN"]
     chat_id = os.environ["KPTU_CHAT_ID"]
     url = f"https://api.telegram.org/bot{token}/sendMessage"
-    MAX = 3500
-    # 구분선 기준 분할
-    parts, cur = [], ""
-    for line in text.split("\n"):
-        if len(cur) + len(line) + 1 > MAX and cur:
-            parts.append(cur.strip())
-            cur = line + "\n"
-        else:
-            cur += line + "\n"
-    if cur.strip():
-        parts.append(cur.strip())
-    
+    SEP = "━─────────────────────━"
+        # 구분선 기준으로 섹션 분리 후 4096자 초과 시에만 분할
+    sections = text.split(SEP)
+        parts, cur = [], ""
+    for i, sec in enumerate(sections):
+                chunk = (SEP if i > 0 else "") + sec
+                if len(cur) + len(chunk) > 4000 and cur:
+                                parts.append(cur.strip())
+                                cur = chunk
+                else:
+                                cur += chunk
+                        if cur.strip():
+                                    parts.append(cur.strip())
+
     ok = 0
     for part in parts:
-        r = requests.post(url, json={"chat_id": chat_id, "text": part, "disable_web_page_preview": True})
+                r = requests.post(url, json={"chat_id": chat_id, "text": part, "disable_web_page_preview": True})
         if r.status_code == 200: ok += 1
         else: print(f"전송 실패: {r.text[:100]}")
     print(f"텔레그램 전송: {ok}/{len(parts)}개 성공")
