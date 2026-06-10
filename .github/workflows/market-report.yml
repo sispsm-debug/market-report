@@ -2,7 +2,7 @@ name: 증시 주도주 분석
 
 on:
   schedule:
-    - cron: '0 0 * * 1-5'
+    - cron: '30 7 * * 1-5'
   workflow_dispatch:
 
 jobs:
